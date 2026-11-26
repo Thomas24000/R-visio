@@ -3,11 +3,12 @@
 // on récupère la dernière version publiée (sans passer par le cache HTTP du navigateur),
 // et le cache ne sert que hors ligne. Plus besoin de changer VERSION à chaque mise à jour :
 // ne l'incrémenter que si la liste CORE ou la logique de ce fichier change.
-var VERSION = "revise-v2";
+var VERSION = "revise-v3";
 var CORE = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
+  "./ia-locale.js",
   "./icons/icon.svg",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
