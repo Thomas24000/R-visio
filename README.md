@@ -26,6 +26,7 @@ L'app a une icône (`icons/`), un manifeste (`manifest.webmanifest`) et un servi
 - Il suffit de pousser sur `main` : pas de numéro de version à changer.
 - L'app charge toujours la dernière version publiée dès qu'il y a du réseau (le cache ne sert que hors ligne).
 - Si l'app est déjà ouverte, elle vérifie s'il y a du nouveau à chaque retour dans l'appli, au retour du réseau et toutes les 5 minutes, puis affiche une bannière « Nouvelle version disponible → Mettre à jour ».
+- En bas de l'accueil : numéro de version (`APP_VERSION` dans `index.html`, à incrémenter à chaque modif) et bouton « Forcer la mise à jour » qui vide le cache de l'appli et recharge (les cours ne sont pas effacés).
 - Ne changer `VERSION` dans `sw.js` que si la liste des fichiers en cache ou la logique du service worker change.
 
 ## Limites actuelles
