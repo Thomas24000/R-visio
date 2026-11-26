@@ -19,7 +19,14 @@ Version en ligne : https://thomas24000.github.io/R-visio/
 - **iPhone (Safari)** : Partager → « Sur l'écran d'accueil ».
 - **Android (Chrome)** : menu ⋮ → « Ajouter à l'écran d'accueil » / « Installer l'application ».
 
-L'app a une icône (`icons/`), un manifeste (`manifest.webmanifest`) et un service worker (`sw.js`) qui la rend utilisable **hors ligne** après la première visite. À chaque modification des fichiers, incrémenter `VERSION` dans `sw.js`.
+L'app a une icône (`icons/`), un manifeste (`manifest.webmanifest`) et un service worker (`sw.js`) qui la rend utilisable **hors ligne** après la première visite.
+
+### Mises à jour
+
+- Il suffit de pousser sur `main` : pas de numéro de version à changer.
+- L'app charge toujours la dernière version publiée dès qu'il y a du réseau (le cache ne sert que hors ligne).
+- Si l'app est déjà ouverte, elle vérifie s'il y a du nouveau à chaque retour dans l'appli, au retour du réseau et toutes les 5 minutes, puis affiche une bannière « Nouvelle version disponible → Mettre à jour ».
+- Ne changer `VERSION` dans `sw.js` que si la liste des fichiers en cache ou la logique du service worker change.
 
 ## Limites actuelles
 
