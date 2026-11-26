@@ -64,18 +64,19 @@ textarea{min-height:220px;resize:vertical}
 </head>
 <body>
 <div class="wrap" id="app"></div>
+<script src="ia-locale.js"></script>
 <script>
 (function(){
 var KEY="revise.v1", app=document.getElementById("app");
-var S={courses:[],view:"home",cid:null,tab:"cards",busy:"",err:"",study:null,quizState:null,sample:undefined};
+var S={courses:[],view:"home",cid:null,tab:"cards",busy:"",err:"",study:null,quizState:null,sample:undefined,hasClaude:typeof claude!=="undefined"&&!!claude&&typeof claude.use==="function",busyMsg:"",busyPct:null,abort:null,aiPick:null,note:""};
 var DAY=864e5, INTERVALS=[0,1,3,7,14];
 
 function load(){try{S.courses=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){S.courses=[]}}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S.courses))}catch(e){}}
 function uid(){return Math.random().toString(36).slice(2,10)}
 function cur(){return S.courses.find(function(c){return c.id===S.cid})}
-function el(tag,attrs,kids){var e=document.createElement(tag);attrs=attrs||{};for(var k in attrs){if(k==="class")e.className=attrs[k];else if(k.slice(0,2)==="on")e.addEventListener(k.slice(2),attrs[k]);else if(k==="text")e.textContent=attrs[k];else e.setAttribute(k,attrs[k])}(kids||[]).forEach(function(c){if(c==null)return;e.appendChild(typeof c==="string"?document.createTextNode(c):c)});return e}
-function go(v,cid){S.view=v;if(cid!==undefined)S.cid=cid;S.err="";S.study=null;S.quizState=null;render()}
+function el(tag,attrs,kids){var e=document.createElement(tag);attrs=attrs||{};for(var k in attrs){if(attrs[k]==null||attrs[k]===false)continue;if(k==="class")e.className=attrs[k];else if(k.slice(0,2)==="on")e.addEventListener(k.slice(2),attrs[k]);else if(k==="text")e.textContent=attrs[k];else e.setAttribute(k,attrs[k])}(kids||[]).forEach(function(c){if(c==null)return;e.appendChild(typeof c==="string"?document.createTextNode(c):c)});return e}
+function go(v,cid){S.view=v;if(cid!==undefined)S.cid=cid;S.err="";S.note="";S.setup=null;S.study=null;S.quizState=null;render()}
 
 /* ---------- import PDF (pdf.js, chargé à la demande) ---------- */
 var pdfjsP=null;
@@ -112,9 +113,16 @@ async function getSample(){
 }
 function clip(t){return t.length>40000?t.slice(0,40000):t}
 var BASE="Tu es un assistant pédagogique. Réponds en français. Base-toi UNIQUEMENT sur le cours fourni, n'invente rien. Réponds avec du JSON valide uniquement, sans texte autour ni balises de code.\n\nCOURS « ";
+function apply(c,kind,r){
+  if(kind==="cards"){c.cards=(r.cards||[]).filter(function(x){return x.q&&x.a}).map(function(x){return{q:String(x.q),a:String(x.a),box:0,due:0}})}
+  if(kind==="sheet"){c.sheet={summary:String(r.summary||""),sections:r.sections||[],terms:r.terms||[]}}
+  if(kind==="quiz"){c.quiz=(r.quiz||[]).filter(function(x){return x.q&&Array.isArray(x.options)&&x.options.length>1&&typeof x.answer==="number"})}
+  save();
+}
 async function gen(kind){
+  if(!S.hasClaude||!window.claude)return genLocal(kind);
   var c=cur(), sample=await getSample();
-  if(!sample){S.err="La génération par IA n'est pas disponible dans cette vue. Ouvre l'app depuis ton compte Claude.";render();return}
+  if(!sample)return genLocal(kind);
   S.busy=kind;S.err="";render();
   var p={
     cards:'Crée entre 15 et 25 flashcards couvrant les notions essentielles (définitions, dates, formules, causes/conséquences, exemples clés). Questions courtes et précises, réponses concises (1-3 phrases). Format: {"cards":[{"q":"...","a":"..."}]}',
@@ -123,14 +131,68 @@ async function gen(kind){
   }[kind];
   try{
     var r=await sample.json(BASE+c.title+" » :\n\n"+clip(c.text)+"\n\nTÂCHE : "+p,{modelTier:"default",cache:false});
-    if(kind==="cards"){c.cards=(r.cards||[]).filter(function(x){return x.q&&x.a}).map(function(x){return{q:String(x.q),a:String(x.a),box:0,due:0}})}
-    if(kind==="sheet"){c.sheet={summary:String(r.summary||""),sections:r.sections||[],terms:r.terms||[]}}
-    if(kind==="quiz"){c.quiz=(r.quiz||[]).filter(function(x){return x.q&&Array.isArray(x.options)&&x.options.length>1&&typeof x.answer==="number"})}
-    save();
+    apply(c,kind,r);
   }catch(e){
     S.err=(e&&e.code==="not_granted")?"Autorisation refusée : accepte la demande pour que Claude puisse analyser ton cours.":(e&&e.code==="rate_limited")?"Trop de demandes, réessaie dans un instant.":"La génération a échoué. Réessaie (un cours très long peut être découpé en plusieurs parties).";
   }
   S.busy="";render();
+}
+
+/* ---------- IA locale ---------- */
+var renderSoon=(function(){var t=null;return function(){if(t)return;t=setTimeout(function(){t=null;render()},250)}})();
+function fmtMo(b){return b>=1e9?(b/1e9).toFixed(2).replace(".",",")+" Go":Math.round(b/1e6)+" Mo"}
+async function genLocal(kind){
+  var AI=window.LocalAI,c=cur();
+  if(!AI){S.err="L'IA locale n'a pas pu être chargée. Vérifie ta connexion puis réessaie.";render();return}
+  var cfg=AI.getCfg();
+  if(!cfg){S.err="";S.gpu=await AI.probeGpu();S.aiPick=S.aiPick||(S.gpu&&!AI.caps().ios?"equilibre":"leger");S.setup=kind;render();return}
+  var ctrl=new AbortController(),lock=null,phase="load";
+  S.busy=kind;S.err="";S.note="";S.setup=null;S.abort=ctrl;S.busyPct=null;
+  S.busyMsg=AI.isLoaded(cfg.model)?"Préparation…":"Chargement de l'IA locale…";render();
+  try{if(navigator.wakeLock)lock=await navigator.wakeLock.request("screen")}catch(e){}
+  try{
+    await AI.load(cfg.model,function(l,t){S.busyPct=l/t;S.busyMsg="Téléchargement du modèle : "+fmtMo(l)+" / "+fmtMo(t);renderSoon()});
+    if(ctrl.signal.aborted)throw {name:"AbortError"};
+    phase="gen";S.busyPct=null;S.busyMsg="Lecture du cours…";render();
+    // Si le moteur ne réagit pas à « Arrêter » dans les 3 s, on le coupe de force.
+    var stopped=new Promise(function(_,ko){ctrl.signal.addEventListener("abort",function(){setTimeout(function(){if(S.abort!==ctrl)return;AI.reset();ko({name:"AbortError"})},3000)})});
+    var r=await Promise.race([AI.generate(kind,c.title,c.text,{signal:ctrl.signal,onStatus:function(m){S.busyMsg=m;renderSoon()}}),stopped]);
+    var n=kind==="cards"?r.cards.length:kind==="quiz"?r.quiz.length:r.sections.length;
+    if(!n)S.err="L'IA locale n'a rien produit d'exploitable. Réessaie, ou essaie le modèle « Équilibré ».";
+    else{apply(c,kind,r);if(r.partial)S.note="Cours long : l'IA locale n'en a analysé qu'une partie (4 extraits répartis sur tout le cours).";}
+  }catch(e){
+    var msg=String(e&&(e.message||e.name)||e);
+    if((e&&e.name==="AbortError")||/abort/i.test(msg))S.err="Génération arrêtée.";
+    else if(phase==="load"&&/fetch|network|download|HTTP|offline|Failed/i.test(msg))S.err="Le téléchargement du modèle a échoué. Vérifie ta connexion (Wi-Fi conseillé) et réessaie : il reprendra où il s'est arrêté si possible.";
+    else if(phase==="load")S.err="Impossible de démarrer l'IA locale sur cet appareil (mémoire insuffisante ?). Essaie le modèle « Léger », ferme les autres applis, puis réessaie.";
+    else S.err="La génération a échoué ("+msg.slice(0,80)+"). Réessaie, ou découpe le cours en plusieurs parties.";
+  }
+  try{if(lock)lock.release()}catch(e){}
+  S.busy="";S.busyMsg="";S.busyPct=null;S.abort=null;render();
+}
+function LocalSetup(kind){
+  var AI=window.LocalAI,cp=AI.caps(),box=el("div",{class:"card"});
+  box.appendChild(el("h3",{text:"IA locale (expérimental)",style:"margin-bottom:6px"}));
+  box.appendChild(el("p",{class:"meta",text:"Un petit modèle d'IA tourne directement sur ton téléphone : gratuit, privé, et utilisable hors ligne une fois téléchargé. Il est nettement moins bon que Claude et peut prendre plusieurs minutes. Relis toujours ce qu'il produit."}));
+  box.appendChild(el("p",{class:"meta",text:S.gpu?"✓ Accélération graphique (WebGPU) disponible : mode rapide.":"Pas d'accélération graphique (WebGPU) disponible : mode processeur, nettement plus lent. Choisis plutôt « Léger »."}));
+  Object.keys(AI.MODELS).forEach(function(id){
+    var m=AI.MODELS[id],on=S.aiPick===id;
+    box.appendChild(el("button",{class:"opt"+(on?" ok":""),onclick:function(){S.aiPick=id;render()}},[
+      el("b",{text:(on?"● ":"○ ")+m.label+" · "+m.size}),el("div",{class:"meta",text:m.desc+(id==="equilibre"&&cp.ios?" Sur iPhone, peut manquer de mémoire.":"")})]));
+  });
+  box.appendChild(el("p",{class:"note",text:"Le téléchargement se fait une seule fois. Wi-Fi conseillé."}));
+  box.appendChild(el("div",{class:"row",style:"margin-top:8px"},[
+    el("button",{class:"pri",text:"Télécharger et générer",onclick:function(){AI.setCfg({model:S.aiPick});S.setup=null;genLocal(kind)}}),
+    el("button",{text:"Annuler",onclick:function(){S.setup=null;render()}})]));
+  return box;
+}
+function Busy(){
+  var box=el("div",{class:"card",style:"margin-bottom:12px"},[el("div",{class:"row"},[el("b",{text:"IA locale"}),el("div",{class:"sp"}),
+    S.abort?el("button",{class:"ghost",text:"Arrêter",onclick:function(){S.abort.abort();S.busyMsg="Arrêt…";render()}}):null]),
+    el("div",{class:"meta",style:"margin:6px 0 10px",text:S.busyMsg||"…"}),
+    el("div",{class:"bar"},[el("i",{style:"width:"+(S.busyPct==null?100:Math.round(S.busyPct*100))+"%"+(S.busyPct==null?";opacity:.35":"")})]),
+    el("div",{class:"note",text:"Garde l'appli ouverte et l'écran allumé pendant la génération."})]);
+  return box;
 }
 
 /* ---------- vues ---------- */
@@ -196,9 +258,12 @@ function Course(){
     el("button",{class:"ghost",text:"Supprimer",onclick:function(){if(!S.confirmDel){S.confirmDel=true;render();return}S.confirmDel=false;S.courses=S.courses.filter(function(x){return x!==c});save();go("home")}})]));
   if(S.confirmDel)box.appendChild(el("div",{class:"err",text:"Clique encore une fois sur « Supprimer » pour confirmer (définitif)."}));
   var tabs=el("div",{class:"tabs"});
-  [["cards","Flashcards"],["sheet","Fiche"],["quiz","Quiz"],["text","Cours"]].forEach(function(x){tabs.appendChild(el("button",{class:S.tab===x[0]?"on":"",text:x[1],onclick:function(){S.tab=x[0];S.study=null;S.quizState=null;S.err="";S.confirmDel=false;render()}}))});
+  [["cards","Flashcards"],["sheet","Fiche"],["quiz","Quiz"],["text","Cours"]].forEach(function(x){tabs.appendChild(el("button",{class:S.tab===x[0]?"on":"",text:x[1],onclick:function(){S.tab=x[0];S.study=null;S.quizState=null;S.err="";S.note="";S.setup=null;S.confirmDel=false;render()}}))});
   box.appendChild(tabs);
   if(S.err)box.appendChild(el("div",{class:"err",text:S.err}));
+  if(S.note)box.appendChild(el("div",{class:"note",style:"margin:0 0 10px",text:S.note}));
+  if(S.busy&&S.busyMsg)box.appendChild(Busy());
+  if(S.setup===S.tab&&window.LocalAI){box.appendChild(LocalSetup(S.tab));return box}
   if(S.tab==="cards")box.appendChild(Cards(c));
   if(S.tab==="sheet")box.appendChild(Sheet(c));
   if(S.tab==="quiz")box.appendChild(Quiz(c));
@@ -207,8 +272,12 @@ function Course(){
 }
 
 function genBlock(kind,label,hint){
-  var busy=S.busy===kind;
-  return el("div",{class:"card empty"},[el("div",{text:hint}),el("div",{style:"margin-top:14px"},[el("button",{class:"pri",disabled:S.busy?"disabled":null,text:busy?"Claude analyse ton cours…":label,onclick:function(){gen(kind)}})])]);
+  var busy=S.busy===kind,local=!S.hasClaude;
+  if(local&&busy)return el("div");
+  var cfg=local&&window.LocalAI?LocalAI.getCfg():null;
+  if(local&&cfg)label+=" (IA locale)";
+  return el("div",{class:"card empty"},[el("div",{text:hint}),el("div",{style:"margin-top:14px"},[el("button",{class:"pri",disabled:S.busy?"disabled":null,text:busy?"Claude analyse ton cours…":label,onclick:function(){gen(kind)}})]),
+    local?el("div",{class:"note",text:cfg?"Avec l'IA locale « "+LocalAI.MODELS[cfg.model].label+" », directement sur ton appareil.":"Ici, la génération se fait avec une petite IA installée sur ton appareil (expérimental)."}):null]);
 }
 
 function Cards(c){
@@ -282,7 +351,7 @@ function Quiz(c){
   return box;
 }
 
-var APP_VERSION="2026-11-26.4";
+var APP_VERSION="2026-11-26.5";
 function forceUpdate(btn){
   if(btn){btn.disabled=true;btn.textContent="Mise à jour…"}
   // Vide les caches de l'appli (tes cours, stockés à part, ne sont pas touchés) puis recharge depuis le serveur.
@@ -294,7 +363,13 @@ function forceUpdate(btn){
 function Footer(){
   var b=el("button",{class:"ghost",text:"Forcer la mise à jour",style:"font-size:13px"});
   b.addEventListener("click",function(){forceUpdate(b)});
-  return el("div",{class:"meta",style:"text-align:center;margin-top:40px"},[el("span",{text:"Version "+APP_VERSION+" · "}),b]);
+  var ai=null,cfg=!S.hasClaude&&window.LocalAI?LocalAI.getCfg():null;
+  if(cfg){
+    var d=el("button",{class:"ghost",text:S.confirmAi?"Confirmer la suppression":"Supprimer",style:"font-size:13px"+(S.confirmAi?";color:var(--ko)":"")});
+    d.addEventListener("click",function(){if(S.busy)return;if(!S.confirmAi){S.confirmAi=true;render();return}d.disabled=true;d.textContent="Suppression…";LocalAI.removeAll().then(function(){S.confirmAi=false;render()})});
+    ai=el("div",{},[el("span",{text:"IA locale : "+LocalAI.MODELS[cfg.model].label+" ("+LocalAI.MODELS[cfg.model].size+") · "}),d]);
+  }
+  return el("div",{class:"meta",style:"text-align:center;margin-top:40px"},[el("div",{},[el("span",{text:"Version "+APP_VERSION+" · "}),b]),ai]);
 }
 function render(){
   app.textContent="";

@@ -29,6 +29,20 @@ L'app a une icône (`icons/`), un manifeste (`manifest.webmanifest`) et un servi
 - En bas de l'accueil : numéro de version (`APP_VERSION` dans `index.html`, à incrémenter à chaque modif) et bouton « Forcer la mise à jour » qui vide le cache de l'appli et recharge (les cours ne sont pas effacés).
 - Ne changer `VERSION` dans `sw.js` que si la liste des fichiers en cache ou la logique du service worker change.
 
+## IA locale (expérimental)
+
+Sur la version GitHub Pages, la génération se fait avec un petit modèle d'IA qui tourne **dans le navigateur** (`ia-locale.js`) :
+
+- Moteur : [wllama](https://github.com/ngxson/wllama) 3.13.0 (llama.cpp en WebAssembly), hébergé dans `vendor/wllama/`. WebGPU si disponible, sinon processeur.
+- Safari / iOS : build de compatibilité `vendor/wllama-compat/` (Safari n'a ni JSPI ni Memory64).
+- Modèles (téléchargés une fois depuis Hugging Face, puis gardés en cache → hors ligne) :
+  - **Léger** : Qwen 2.5 0,5B Instruct Q4_K_M (≈ 400 Mo)
+  - **Équilibré** : Qwen 2.5 1,5B Instruct Q4_K_M (≈ 1,1 Go)
+- Sortie contrainte par des grammaires GBNF (JSON toujours au bon format) et lecture tolérante si la sortie est coupée.
+- Le cours est découpé en extraits d'environ 3 500 caractères (4 extraits au maximum, répartis sur tout le cours).
+- Qualité nettement inférieure à Claude : à relire. Dans l'artefact claude.ai, c'est Claude qui génère.
+- Le modèle se supprime depuis le bas de l'accueil (« IA locale : … · Supprimer »).
+
 ## Limites actuelles
 
 - Les données sont stockées dans le `localStorage` du navigateur (pas de synchronisation entre appareils).
