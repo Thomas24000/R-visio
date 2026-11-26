@@ -243,8 +243,45 @@ function render(){
 }
 load();render();
 })();
+/* ---------- appli installée : hors ligne + mises à jour ---------- */
 if("serviceWorker" in navigator&&(location.protocol==="https:"||location.hostname==="localhost")&&!/(^|\.)claude\.ai$/.test(location.hostname)){
-  window.addEventListener("load",function(){navigator.serviceWorker.register("sw.js").catch(function(){})});
+  (function(){
+    var reg=null,base=null,shown=false,last=0;
+    function hash(t){var h=5381;for(var i=0;i<t.length;i++)h=((h<<5)+h+t.charCodeAt(i))|0;return h}
+    function fetchPage(){return fetch("index.html?check="+Date.now(),{cache:"no-store"}).then(function(r){if(!r.ok)throw 0;return r.text()})}
+    // Version de la page en cours : celle que le service worker a servie (en cache), sinon celle du serveur.
+    function baseline(){
+      var fromCache=navigator.serviceWorker.controller&&window.caches
+        ?caches.match("./index.html").then(function(r){return r?r.text():null}).catch(function(){return null})
+        :Promise.resolve(null);
+      return fromCache.then(function(t){return t!=null?t:fetchPage()}).then(function(t){base=hash(t)}).catch(function(){});
+    }
+    function banner(){
+      if(shown)return;shown=true;
+      var b=document.createElement("div");
+      b.setAttribute("role","status");
+      b.style.cssText="position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));transform:translateX(-50%);z-index:99;display:flex;gap:12px;align-items:center;background:var(--ink);color:var(--bg);padding:10px 10px 10px 16px;border-radius:12px;box-shadow:0 6px 24px rgba(0,0,0,.25);font-size:14px;width:max-content;max-width:calc(100% - 32px)";
+      var t=document.createElement("span");t.textContent="Nouvelle version disponible";t.style.flex="1";
+      var go=document.createElement("button");go.className="pri";go.textContent="Mettre à jour";go.style.whiteSpace="nowrap";
+      go.onclick=function(){go.disabled=true;go.textContent="…";(reg?reg.update().catch(function(){}):Promise.resolve()).then(function(){location.reload()})};
+      var x=document.createElement("button");x.className="ghost";x.textContent="Plus tard";x.style.cssText="color:inherit;white-space:nowrap";
+      x.onclick=function(){b.remove();shown=false;base=null;baseline()};
+      b.appendChild(t);b.appendChild(go);b.appendChild(x);document.body.appendChild(b);
+    }
+    function check(){
+      if(shown||!navigator.onLine||Date.now()-last<15000)return;last=Date.now();
+      if(reg)reg.update().catch(function(){});
+      fetchPage().then(function(t){if(base!==null&&hash(t)!==base)banner()}).catch(function(){});
+    }
+    window.addEventListener("load",function(){
+      navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(function(r){reg=r}).catch(function(){});
+      baseline();
+    });
+    // Vérifie à chaque retour dans l'appli, au retour du réseau, et toutes les 5 minutes.
+    document.addEventListener("visibilitychange",function(){if(document.visibilityState==="visible")check()});
+    window.addEventListener("online",check);
+    setInterval(function(){if(document.visibilityState==="visible")check()},300000);
+  })();
 }
 </script>
 </body>
