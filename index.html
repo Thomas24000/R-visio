@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Révise — flashcards, fiches et quiz depuis tes cours</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--ink:#1d1d1b;--mute:#6b6a64;--line:#e4e2da;--acc:#4f46e5;--acc2:#eef0ff;--ok:#16a34a;--ko:#dc2626;--okbg:#e8f7ee;--kobg:#fdecec}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#201f1e;--ink:#f0eee8;--mute:#9a988f;--line:#33322f;--acc:#8b87ff;--acc2:#26254a;--okbg:#14301f;--kobg:#3a1c1c}}
+*{box-sizing:border-box}
+body{margin:0;font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+.wrap{max-width:860px;margin:0 auto;padding:20px 16px 80px}
+h1,h2,h3{font-family:Fraunces,Georgia,serif;margin:0}
+h1{font-size:28px}
+header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:22px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 15px;border-radius:10px;font-weight:500}
+button:hover{border-color:var(--acc)}
+button.pri{background:var(--acc);color:#fff;border-color:var(--acc)}
+button.pri:disabled{opacity:.5;cursor:default}
+button.ghost{background:none;border:none;color:var(--mute);padding:6px 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}
+input[type=text],textarea{width:100%;font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+textarea{min-height:220px;resize:vertical}
+.grid{display:grid;gap:12px}
+.course{display:flex;justify-content:space-between;align-items:center;gap:12px;cursor:pointer}
+.course:hover{border-color:var(--acc)}
+.meta{color:var(--mute);font-size:13px}
+.pill{display:inline-block;background:var(--acc2);color:var(--acc);border-radius:99px;padding:2px 10px;font-size:12px;font-weight:600;margin-right:6px}
+.tabs{display:flex;gap:6px;margin:16px 0;flex-wrap:wrap}
+.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.sp{flex:1}
+.flip{perspective:1000px;margin:14px 0}
+.flip .in{position:relative;min-height:240px;transition:transform .45s;transform-style:preserve-3d;cursor:pointer}
+.flip.f .in{transform:rotateY(180deg)}
+.face{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px;background:var(--card);border:1px solid var(--line);border-radius:16px;font-size:19px}
+.face.b{transform:rotateY(180deg);background:var(--acc2)}
+.face small{position:absolute;top:12px;left:16px;color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.bar{height:6px;background:var(--line);border-radius:9px;overflow:hidden}
+.bar i{display:block;height:100%;background:var(--acc);transition:width .3s}
+.opt{display:block;width:100%;text-align:left;margin:8px 0}
+.opt.ok{background:var(--okbg);border-color:var(--ok)}
+.opt.ko{background:var(--kobg);border-color:var(--ko)}
+.sheet h3{margin:20px 0 6px;font-size:19px}
+.sheet ul{margin:6px 0;padding-left:20px}
+.sheet li{margin:4px 0}
+.term{display:grid;grid-template-columns:150px 1fr;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.term b{color:var(--acc)}
+.err{background:var(--kobg);color:var(--ko);padding:10px 14px;border-radius:10px;margin:10px 0}
+.note{color:var(--mute);font-size:13px;margin-top:8px}
+.empty{text-align:center;padding:40px 10px;color:var(--mute)}
+@media(max-width:560px){.term{grid-template-columns:1fr}h1{font-size:23px}}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+(function(){
+var KEY="revise.v1", app=document.getElementById("app");
+var S={courses:[],view:"home",cid:null,tab:"cards",busy:"",err:"",study:null,quizState:null,sample:undefined};
+var DAY=864e5, INTERVALS=[0,1,3,7,14];
+
+function load(){try{S.courses=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){S.courses=[]}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S.courses))}catch(e){}}
+function uid(){return Math.random().toString(36).slice(2,10)}
+function cur(){return S.courses.find(function(c){return c.id===S.cid})}
+function el(tag,attrs,kids){var e=document.createElement(tag);attrs=attrs||{};for(var k in attrs){if(k==="class")e.className=attrs[k];else if(k.slice(0,2)==="on")e.addEventListener(k.slice(2),attrs[k]);else if(k==="text")e.textContent=attrs[k];else e.setAttribute(k,attrs[k])}(kids||[]).forEach(function(c){if(c==null)return;e.appendChild(typeof c==="string"?document.createTextNode(c):c)});return e}
+function go(v,cid){S.view=v;if(cid!==undefined)S.cid=cid;S.err="";S.study=null;S.quizState=null;render()}
+
+/* ---------- IA ---------- */
+async function getSample(){
+  if(S.sample!==undefined)return S.sample;
+  try{S.sample=await claude.use("sample")}catch(e){S.sample=null}
+  return S.sample;
+}
+function clip(t){return t.length>40000?t.slice(0,40000):t}
+var BASE="Tu es un assistant pédagogique. Réponds en français. Base-toi UNIQUEMENT sur le cours fourni, n'invente rien. Réponds avec du JSON valide uniquement, sans texte autour ni balises de code.\n\nCOURS « ";
+async function gen(kind){
+  var c=cur(), sample=await getSample();
+  if(!sample){S.err="La génération par IA n'est pas disponible dans cette vue. Ouvre l'app depuis ton compte Claude.";render();return}
+  S.busy=kind;S.err="";render();
+  var p={
+    cards:'Crée entre 15 et 25 flashcards couvrant les notions essentielles (définitions, dates, formules, causes/conséquences, exemples clés). Questions courtes et précises, réponses concises (1-3 phrases). Format: {"cards":[{"q":"...","a":"..."}]}',
+    sheet:'Crée une fiche de révision synthétique. Format: {"summary":"résumé en 3-4 phrases","sections":[{"title":"...","points":["point clé","..."]}],"terms":[{"t":"terme","d":"définition courte"}]}. 3 à 7 sections, 3 à 6 points chacune, 5 à 12 termes.',
+    quiz:'Crée un QCM de 8 à 12 questions de difficulté variée. 4 options plausibles par question, une seule bonne. Format: {"quiz":[{"q":"...","options":["...","...","...","..."],"answer":0,"explain":"pourquoi c\'est la bonne réponse"}]} où answer est l\'index (0-3) de la bonne option. Varie la position de la bonne réponse.'
+  }[kind];
+  try{
+    var r=await sample.json(BASE+c.title+" » :\n\n"+clip(c.text)+"\n\nTÂCHE : "+p,{modelTier:"default",cache:false});
+    if(kind==="cards"){c.cards=(r.cards||[]).filter(function(x){return x.q&&x.a}).map(function(x){return{q:String(x.q),a:String(x.a),box:0,due:0}})}
+    if(kind==="sheet"){c.sheet={summary:String(r.summary||""),sections:r.sections||[],terms:r.terms||[]}}
+    if(kind==="quiz"){c.quiz=(r.quiz||[]).filter(function(x){return x.q&&Array.isArray(x.options)&&x.options.length>1&&typeof x.answer==="number"})}
+    save();
+  }catch(e){
+    S.err=(e&&e.code==="not_granted")?"Autorisation refusée : accepte la demande pour que Claude puisse analyser ton cours.":(e&&e.code==="rate_limited")?"Trop de demandes, réessaie dans un instant.":"La génération a échoué. Réessaie (un cours très long peut être découpé en plusieurs parties).";
+  }
+  S.busy="";render();
+}
+
+/* ---------- vues ---------- */
+function Home(){
+  var box=el("div",{},[]);
+  var head=el("header",{},[el("div",{},[el("h1",{text:"Révise"}),el("div",{class:"meta",text:"Colle un cours, obtiens flashcards, fiche et quiz."})]),el("button",{class:"pri",text:"+ Nouveau cours",onclick:function(){go("new")}})]);
+  box.appendChild(head);
+  if(!S.courses.length){box.appendChild(el("div",{class:"card empty"},[el("div",{text:"Aucun cours pour l'instant."}),el("div",{text:"Clique sur « Nouveau cours » et colle ton texte."})]));return box}
+  var g=el("div",{class:"grid"});
+  S.courses.forEach(function(c){
+    var due=(c.cards||[]).filter(function(x){return x.due<=Date.now()}).length;
+    g.appendChild(el("div",{class:"card course",onclick:function(){S.tab="cards";go("course",c.id)}},[
+      el("div",{},[el("h3",{text:c.title}),el("div",{class:"meta"},[
+        c.cards&&c.cards.length?el("span",{class:"pill",text:c.cards.length+" cartes"}):null,
+        c.sheet?el("span",{class:"pill",text:"fiche"}):null,
+        c.quiz&&c.quiz.length?el("span",{class:"pill",text:"quiz"}):null,
+        due&&c.cards?el("span",{text:due+" à réviser"}):null])]),
+      el("span",{class:"meta",text:"›"})]));
+  });
+  box.appendChild(g);return box;
+}
+
+function NewCourse(){
+  var t=el("input",{type:"text",placeholder:"Titre du cours (ex. Biologie cellulaire – chap. 3)"});
+  var ta=el("textarea",{placeholder:"Colle ici le texte de ton cours…"});
+  var f=el("input",{type:"file",accept:".txt,.md,.csv,.html,text/plain"});
+  f.addEventListener("change",function(){var file=f.files[0];if(!file)return;var r=new FileReader();r.onload=function(){ta.value=String(r.result);if(!t.value)t.value=file.name.replace(/\.[^.]+$/,"")};r.readAsText(file)});
+  var err=el("div");
+  return el("div",{},[
+    el("header",{},[el("h1",{text:"Nouveau cours"}),el("button",{text:"Annuler",onclick:function(){go("home")}})]),
+    el("div",{class:"card grid"},[t,ta,el("div",{class:"row"},[el("span",{class:"meta",text:"ou importe un fichier texte :"}),f]),
+      el("div",{class:"note",text:"Pour un PDF ou un Word : ouvre-le, copie le texte et colle-le ici."}),err,
+      el("button",{class:"pri",text:"Créer le cours",onclick:function(){
+        if(ta.value.trim().length<80){err.className="err";err.textContent="Colle un peu plus de texte (au moins quelques phrases).";return}
+        var c={id:uid(),title:t.value.trim()||"Cours sans titre",text:ta.value,cards:null,sheet:null,quiz:null};
+        S.courses.unshift(c);save();S.tab="cards";go("course",c.id);
+      }})])]);
+}
+
+function Course(){
+  var c=cur(); if(!c){go("home");return el("div")}
+  var box=el("div",{});
+  box.appendChild(el("header",{},[el("div",{},[el("button",{class:"ghost",text:"‹ Mes cours",onclick:function(){go("home")}}),el("h1",{text:c.title})]),
+    el("button",{class:"ghost",text:"Supprimer",onclick:function(){if(!S.confirmDel){S.confirmDel=true;render();return}S.confirmDel=false;S.courses=S.courses.filter(function(x){return x!==c});save();go("home")}})]));
+  if(S.confirmDel)box.appendChild(el("div",{class:"err",text:"Clique encore une fois sur « Supprimer » pour confirmer (définitif)."}));
+  var tabs=el("div",{class:"tabs"});
+  [["cards","Flashcards"],["sheet","Fiche"],["quiz","Quiz"],["text","Cours"]].forEach(function(x){tabs.appendChild(el("button",{class:S.tab===x[0]?"on":"",text:x[1],onclick:function(){S.tab=x[0];S.study=null;S.quizState=null;S.err="";S.confirmDel=false;render()}}))});
+  box.appendChild(tabs);
+  if(S.err)box.appendChild(el("div",{class:"err",text:S.err}));
+  if(S.tab==="cards")box.appendChild(Cards(c));
+  if(S.tab==="sheet")box.appendChild(Sheet(c));
+  if(S.tab==="quiz")box.appendChild(Quiz(c));
+  if(S.tab==="text")box.appendChild(el("div",{class:"card"},[el("div",{class:"meta",text:c.text.length+" caractères"}),el("div",{style:"white-space:pre-wrap;margin-top:8px",text:c.text})]));
+  return box;
+}
+
+function genBlock(kind,label,hint){
+  var busy=S.busy===kind;
+  return el("div",{class:"card empty"},[el("div",{text:hint}),el("div",{style:"margin-top:14px"},[el("button",{class:"pri",disabled:S.busy?"disabled":null,text:busy?"Claude analyse ton cours…":label,onclick:function(){gen(kind)}})])]);
+}
+
+function Cards(c){
+  if(!c.cards)return genBlock("cards","Générer les flashcards","Claude lit ton cours et en tire des cartes question / réponse.");
+  if(S.study)return Study(c);
+  var due=c.cards.filter(function(x){return x.due<=Date.now()});
+  var mastered=c.cards.filter(function(x){return x.box>=3}).length;
+  var box=el("div",{});
+  box.appendChild(el("div",{class:"card"},[
+    el("div",{class:"row"},[el("div",{},[el("b",{text:c.cards.length+" cartes"}),el("div",{class:"meta",text:due.length+" à réviser · "+mastered+" bien maîtrisées"})]),el("div",{class:"sp"}),
+      el("button",{class:"pri",disabled:due.length?null:"disabled",text:"Réviser ("+due.length+")",onclick:function(){startStudy(c,due)}}),
+      el("button",{text:"Tout parcourir",onclick:function(){startStudy(c,c.cards.slice())}}),
+      el("button",{text:S.busy?"…":"Régénérer",disabled:S.busy?"disabled":null,onclick:function(){gen("cards")}})])]));
+  var list=el("div",{class:"grid",style:"margin-top:12px"});
+  c.cards.forEach(function(x,i){list.appendChild(el("div",{class:"card"},[el("b",{text:x.q}),el("div",{class:"meta",style:"margin-top:4px",text:x.a}),
+    el("button",{class:"ghost",text:"Retirer",onclick:function(){c.cards.splice(i,1);save();render()}})]))});
+  box.appendChild(list);return box;
+}
+function shuffle(a){for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t}return a}
+function startStudy(c,cards){S.study={queue:shuffle(cards.slice()),i:0,flipped:false,known:0,total:cards.length};render()}
+function Study(c){
+  var s=S.study;
+  if(s.i>=s.queue.length){
+    return el("div",{class:"card empty"},[el("h2",{text:"Session terminée 🎉"}),el("p",{text:s.known+" / "+s.total+" cartes sues du premier coup."}),el("button",{class:"pri",text:"Retour aux cartes",onclick:function(){S.study=null;render()}})]);
+  }
+  var card=s.queue[s.i];
+  var f=el("div",{class:"flip"+(s.flipped?" f":""),onclick:function(){s.flipped=!s.flipped;render()}},[el("div",{class:"in"},[
+    el("div",{class:"face"},[el("small",{text:"Question"}),el("div",{text:card.q})]),
+    el("div",{class:"face b"},[el("small",{text:"Réponse"}),el("div",{text:card.a})])])]);
+  var bar=el("div",{class:"bar"},[el("i",{style:"width:"+Math.round(s.i/s.queue.length*100)+"%"})]);
+  var actions=el("div",{class:"row",style:"justify-content:center"});
+  if(!s.flipped)actions.appendChild(el("button",{class:"pri",text:"Voir la réponse",onclick:function(){s.flipped=true;render()}}));
+  else{
+    actions.appendChild(el("button",{text:"✗ À revoir",onclick:function(){card.box=0;card.due=Date.now();s.queue.push(card);next(false)}}));
+    actions.appendChild(el("button",{class:"pri",text:"✓ Je savais",onclick:function(){card.box=Math.min(4,card.box+1);card.due=Date.now()+INTERVALS[card.box]*DAY;next(true)}}));
+  }
+  function next(ok){if(ok&&!card._seenWrong)s.known++;if(!ok)card._seenWrong=true;s.i++;s.flipped=false;save();render()}
+  return el("div",{},[el("div",{class:"row"},[el("span",{class:"meta",text:"Carte "+(s.i+1)+" / "+s.queue.length}),el("div",{class:"sp"}),el("button",{class:"ghost",text:"Arrêter",onclick:function(){S.study=null;render()}})]),bar,f,actions]);
+}
+
+function Sheet(c){
+  if(!c.sheet)return genBlock("sheet","Générer la fiche de révision","Un résumé structuré avec les points clés et un mini-lexique.");
+  var s=c.sheet,box=el("div",{});
+  box.appendChild(el("div",{class:"row",style:"margin-bottom:10px"},[el("div",{class:"sp"}),el("button",{text:S.busy?"…":"Régénérer",disabled:S.busy?"disabled":null,onclick:function(){gen("sheet")}})]));
+  var sh=el("div",{class:"card sheet"});
+  if(s.summary){sh.appendChild(el("h3",{text:"L'essentiel",style:"margin-top:0"}));sh.appendChild(el("p",{text:s.summary}))}
+  (s.sections||[]).forEach(function(x){sh.appendChild(el("h3",{text:x.title||""}));sh.appendChild(el("ul",{},(x.points||[]).map(function(p){return el("li",{text:String(p)})})))});
+  if((s.terms||[]).length){sh.appendChild(el("h3",{text:"Vocabulaire"}));s.terms.forEach(function(t){sh.appendChild(el("div",{class:"term"},[el("b",{text:t.t||""}),el("span",{text:t.d||""})]))})}
+  box.appendChild(sh);return box;
+}
+
+function Quiz(c){
+  if(!c.quiz||!c.quiz.length)return genBlock("quiz","Générer le quiz","Un QCM pour tester ce que tu as vraiment retenu.");
+  var q=S.quizState;
+  if(!q)return el("div",{class:"card empty"},[el("div",{text:c.quiz.length+" questions"}),el("div",{class:"row",style:"justify-content:center;margin-top:14px"},[
+    el("button",{class:"pri",text:"Commencer",onclick:function(){S.quizState={i:0,score:0,picked:null,order:shuffle(c.quiz.slice())};render()}}),
+    el("button",{text:S.busy?"…":"Régénérer",disabled:S.busy?"disabled":null,onclick:function(){gen("quiz")}})])]);
+  if(q.i>=q.order.length)return el("div",{class:"card empty"},[el("h2",{text:q.score+" / "+q.order.length}),el("p",{text:q.score===q.order.length?"Sans faute !":q.score>=q.order.length*.7?"Bien joué, encore un peu de travail sur le reste.":"Retourne sur la fiche et les flashcards, puis retente."}),
+    el("div",{class:"row",style:"justify-content:center"},[el("button",{class:"pri",text:"Recommencer",onclick:function(){S.quizState=null;render()}})])]);
+  var it=q.order[q.i],box=el("div",{class:"card"});
+  box.appendChild(el("div",{class:"meta",text:"Question "+(q.i+1)+" / "+q.order.length}));
+  box.appendChild(el("h3",{text:it.q,style:"margin:6px 0 10px"}));
+  it.options.forEach(function(o,idx){
+    var cls="opt";if(q.picked!==null){if(idx===it.answer)cls+=" ok";else if(idx===q.picked)cls+=" ko"}
+    box.appendChild(el("button",{class:cls,text:String(o),onclick:function(){if(q.picked!==null)return;q.picked=idx;if(idx===it.answer)q.score++;render()}}));
+  });
+  if(q.picked!==null){
+    if(it.explain)box.appendChild(el("div",{class:"note",text:it.explain}));
+    box.appendChild(el("div",{style:"margin-top:12px"},[el("button",{class:"pri",text:q.i+1<q.order.length?"Suivante":"Voir le score",onclick:function(){q.i++;q.picked=null;render()}})]));
+  }
+  return box;
+}
+
+function render(){
+  app.textContent="";
+  var v=S.view==="new"?NewCourse():S.view==="course"?Course():Home();
+  app.appendChild(v);
+}
+load();render();
+})();
+</script>
+</body>
+</html>
