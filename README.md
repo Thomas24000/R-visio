@@ -7,7 +7,7 @@ Application de révision : colle un cours, obtiens des **flashcards**, une **fic
 
 ## Fonctionnement
 
-- **Cours** : coller du texte ou importer un fichier `.txt` / `.md`.
+- **Cours** : coller du texte ou importer un fichier **PDF**, `.txt` ou `.md`. Le texte des PDF est extrait dans le navigateur avec [pdf.js](https://github.com/mozilla/pdf.js) (hébergé dans `vendor/pdfjs/`, chargé seulement quand on importe un PDF). Les PDF scannés (images sans texte) ne sont pas pris en charge.
 - **Flashcards** : 15 à 25 cartes, révision espacée (intervalles de 1, 3, 7, 14 jours).
 - **Fiche** : résumé, sections de points clés, lexique.
 - **Quiz** : QCM de 8 à 12 questions avec explications et score.

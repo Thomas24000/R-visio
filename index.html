@@ -77,6 +77,33 @@ function cur(){return S.courses.find(function(c){return c.id===S.cid})}
 function el(tag,attrs,kids){var e=document.createElement(tag);attrs=attrs||{};for(var k in attrs){if(k==="class")e.className=attrs[k];else if(k.slice(0,2)==="on")e.addEventListener(k.slice(2),attrs[k]);else if(k==="text")e.textContent=attrs[k];else e.setAttribute(k,attrs[k])}(kids||[]).forEach(function(c){if(c==null)return;e.appendChild(typeof c==="string"?document.createTextNode(c):c)});return e}
 function go(v,cid){S.view=v;if(cid!==undefined)S.cid=cid;S.err="";S.study=null;S.quizState=null;render()}
 
+/* ---------- import PDF (pdf.js, chargé à la demande) ---------- */
+var pdfjsP=null;
+function loadPdfJs(){
+  if(window.pdfjsLib)return Promise.resolve(window.pdfjsLib);
+  if(pdfjsP)return pdfjsP;
+  pdfjsP=new Promise(function(ok,ko){
+    var sc=document.createElement("script");sc.src="vendor/pdfjs/pdf.min.js";
+    sc.onload=function(){window.pdfjsLib.GlobalWorkerOptions.workerSrc="vendor/pdfjs/pdf.worker.min.js";ok(window.pdfjsLib)};
+    sc.onerror=function(){pdfjsP=null;ko(new Error("pdfjs"))};
+    document.head.appendChild(sc);
+  });
+  return pdfjsP;
+}
+async function pdfToText(file,progress){
+  var lib=await loadPdfJs();
+  var doc=await lib.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;
+  var pages=[];
+  for(var i=1;i<=doc.numPages;i++){
+    progress&&progress(i,doc.numPages);
+    var tc=await (await doc.getPage(i)).getTextContent(),out="";
+    tc.items.forEach(function(it){if(it.str!==undefined){out+=it.str;if(it.hasEOL)out+="\n"}});
+    pages.push(out.replace(/[ \t]+\n/g,"\n").replace(/\n{3,}/g,"\n\n").trim());
+  }
+  doc.destroy();
+  return pages.filter(Boolean).join("\n\n");
+}
+
 /* ---------- IA ---------- */
 async function getSample(){
   if(S.sample!==undefined)return S.sample;
@@ -129,13 +156,32 @@ function Home(){
 function NewCourse(){
   var t=el("input",{type:"text",placeholder:"Titre du cours (ex. Biologie cellulaire – chap. 3)"});
   var ta=el("textarea",{placeholder:"Colle ici le texte de ton cours…"});
-  var f=el("input",{type:"file",accept:".txt,.md,.csv,.html,text/plain"});
-  f.addEventListener("change",function(){var file=f.files[0];if(!file)return;var r=new FileReader();r.onload=function(){ta.value=String(r.result);if(!t.value)t.value=file.name.replace(/\.[^.]+$/,"")};r.readAsText(file)});
-  var err=el("div");
+  var f=el("input",{type:"file",accept:".pdf,application/pdf,.txt,.md,.csv,.html,text/plain"});
+  var err=el("div"),info=el("div",{class:"note",text:"PDF ou fichier texte. Pour un Word : enregistre-le en PDF, ou copie-colle le texte."});
+  function addText(txt,name){
+    txt=String(txt).trim();
+    ta.value=ta.value.trim()?ta.value.replace(/\s+$/,"")+"\n\n"+txt:txt;
+    if(!t.value)t.value=name.replace(/\.[^.]+$/,"");
+  }
+  f.addEventListener("change",function(){
+    var file=f.files[0];if(!file)return;
+    err.className="";err.textContent="";
+    if(/\.pdf$/i.test(file.name)||file.type==="application/pdf"){
+      f.disabled=true;info.textContent="Lecture du PDF…";
+      pdfToText(file,function(p,n){info.textContent="Lecture du PDF… page "+p+" / "+n}).then(function(txt){
+        if(txt.replace(/\s/g,"").length<40){err.className="err";err.textContent="Ce PDF ne contient pas de texte sélectionnable (probablement un scan ou des photos). Il faut un PDF avec du vrai texte.";info.textContent="";return}
+        addText(txt,file.name);info.textContent="PDF importé : "+txt.length+" caractères. Tu peux relire et corriger le texte avant de créer le cours.";
+      }).catch(function(e){
+        err.className="err";err.textContent=e&&e.name==="PasswordException"?"Ce PDF est protégé par un mot de passe.":"Impossible de lire ce PDF. Vérifie ta connexion (le lecteur PDF se télécharge la première fois) ou essaie un autre fichier.";info.textContent="";
+      }).then(function(){f.disabled=false;f.value=""});
+      return;
+    }
+    var r=new FileReader();r.onload=function(){addText(r.result,file.name);f.value=""};r.readAsText(file);
+  });
   return el("div",{},[
     el("header",{},[el("h1",{text:"Nouveau cours"}),el("button",{text:"Annuler",onclick:function(){go("home")}})]),
-    el("div",{class:"card grid"},[t,ta,el("div",{class:"row"},[el("span",{class:"meta",text:"ou importe un fichier texte :"}),f]),
-      el("div",{class:"note",text:"Pour un PDF ou un Word : ouvre-le, copie le texte et colle-le ici."}),err,
+    el("div",{class:"card grid"},[t,ta,el("div",{class:"row"},[el("span",{class:"meta",text:"ou importe un fichier :"}),f]),
+      info,err,
       el("button",{class:"pri",text:"Créer le cours",onclick:function(){
         if(ta.value.trim().length<80){err.className="err";err.textContent="Colle un peu plus de texte (au moins quelques phrases).";return}
         var c={id:uid(),title:t.value.trim()||"Cours sans titre",text:ta.value,cards:null,sheet:null,quiz:null};
