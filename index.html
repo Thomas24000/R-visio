@@ -282,10 +282,25 @@ function Quiz(c){
   return box;
 }
 
+var APP_VERSION="2026-11-26.4";
+function forceUpdate(btn){
+  if(btn){btn.disabled=true;btn.textContent="Mise à jour…"}
+  // Vide les caches de l'appli (tes cours, stockés à part, ne sont pas touchés) puis recharge depuis le serveur.
+  var p=[];
+  if(window.caches)p.push(caches.keys().then(function(ks){return Promise.all(ks.map(function(k){return caches.delete(k)}))}));
+  if(navigator.serviceWorker)p.push(navigator.serviceWorker.getRegistrations().then(function(rs){return Promise.all(rs.map(function(r){return r.unregister()}))}));
+  Promise.all(p).catch(function(){}).then(function(){location.replace(location.pathname+"?v="+Date.now())});
+}
+function Footer(){
+  var b=el("button",{class:"ghost",text:"Forcer la mise à jour",style:"font-size:13px"});
+  b.addEventListener("click",function(){forceUpdate(b)});
+  return el("div",{class:"meta",style:"text-align:center;margin-top:40px"},[el("span",{text:"Version "+APP_VERSION+" · "}),b]);
+}
 function render(){
   app.textContent="";
   var v=S.view==="new"?NewCourse():S.view==="course"?Course():Home();
   app.appendChild(v);
+  if(S.view==="home")app.appendChild(Footer());
 }
 load();render();
 })();
